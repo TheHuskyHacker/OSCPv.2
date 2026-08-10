@@ -4,6 +4,7 @@
 Username:
 ```
 postgres:postgres
+postgres:password
 ```
 
 https://github.com/squid22/PostgreSQL_RCE --> quick RCE
