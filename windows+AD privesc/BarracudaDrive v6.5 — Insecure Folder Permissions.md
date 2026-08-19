@@ -1,4 +1,6 @@
-# Windows Service Binary Hijacking — Privesc Playbook
+# BarracudaDrive v6.5 — Insecure Folder Permissions
+<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/68a55a16-f89d-445e-a882-259f3144735f" />
+
 
 Methodology reference for exploiting **insecure service file/folder permissions** to escalate from a low-privilege user to `NT AUTHORITY\SYSTEM`. Based on [EDB-48789](https://www.exploit-db.com/exploits/48789) (BarracudaDrive v6.5) as the reference case, but the technique applies to any service with weak permissions.
 
